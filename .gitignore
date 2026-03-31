@@ -2,3 +2,8 @@ jdk*/
 node_modules/
 target/
 build/
+data/
+.idea/
+.vscode/
+*.iml
+.DS_Store
