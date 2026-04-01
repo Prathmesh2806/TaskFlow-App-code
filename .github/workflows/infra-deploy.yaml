@@ -1,0 +1,113 @@
+name: "Infrastructure Deployment"
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infrastructure/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment (for EKS clusters)'
+        required: true
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
+          - dr
+        default: 'dev'
+      action:
+        description: 'Terraform Action'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+        default: 'apply'
+      destroy_shared:
+        description: 'ALLOW Shared Network Destruction? (VPC/NAT/ECR)'
+        type: boolean
+        default: false
+
+jobs:
+  shared:
+    name: "Shared Resources"
+    # Run if not destroying, OR if explicitly allowed to destroy shared resources
+    if: github.event.inputs.action != 'destroy' || github.event.inputs.destroy_shared == 'true'
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ensure Shared S3 Backend Exists
+        run: |
+          BUCKET_NAME="taskflow-terraform-state-shared-${{ github.repository_owner }}"
+          if ! aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
+            aws s3api create-bucket --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }}
+            aws s3api put-bucket-versioning --bucket "$BUCKET_NAME" --versioning-configuration Status=Enabled
+          fi
+          sed -i "s/taskflow-terraform-state-shared/$BUCKET_NAME/g" infrastructure/shared/backend.conf
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+
+      - name: Terraform Init (Shared)
+        run: terraform init -backend-config=backend.conf
+        working-directory: infrastructure/shared
+
+      - name: Terraform Action (Shared)
+        run: terraform ${{ github.event.inputs.action || 'apply' }} -auto-approve
+        working-directory: infrastructure/shared
+
+  eks:
+    name: "EKS Cluster"
+    needs: shared
+    # EKS always runs, even on destroy
+    if: always() && (needs.shared.result == 'success' || (github.event.inputs.action == 'destroy' && needs.shared.result == 'skipped'))
+    runs-on: ubuntu-latest
+    env:
+      ENV: ${{ github.event.inputs.environment || 'dev' }}
+      ACTION: ${{ github.event.inputs.action || 'apply' }}
+      AWS_REGION: us-east-1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ensure Env S3 Backend Exists
+        run: |
+          BUCKET_NAME="taskflow-terraform-state-${{ env.ENV }}-${{ github.repository_owner }}"
+          if ! aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
+            aws s3api create-bucket --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }}
+            aws s3api put-bucket-versioning --bucket "$BUCKET_NAME" --versioning-configuration Status=Enabled
+          fi
+          sed -i "s/taskflow-terraform-state-us-east-1/$BUCKET_NAME/g" infrastructure/backend.conf
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+
+      - name: Terraform Init (Env)
+        run: terraform init -backend-config=backend.conf
+        working-directory: infrastructure
+
+      - name: Terraform Action (Env)
+        run: terraform ${{ env.ACTION }} -auto-approve -var-file=envs/${{ env.ENV }}.tfvars
+        working-directory: infrastructure

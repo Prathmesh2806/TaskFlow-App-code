@@ -1,0 +1,19 @@
+module "network" {
+  source = "../../modules/network"
+
+  project_name        = var.project_name
+  environment         = "shared"
+  vpc_cidr            = var.vpc_cidr
+  public_subnets      = var.public_subnets
+  private_subnets     = var.private_subnets
+  availability_zones  = var.availability_zones
+}
+
+module "ecr" {
+  source = "../../modules/ecr"
+
+  project_name = var.project_name
+  environment  = "shared"
+  # Updated services for the full microservices architecture
+  services     = ["frontend", "project-service", "task-service", "user-service", "postgres"]
+}
