@@ -4,13 +4,21 @@ metadata:
   name: taskflow-ingress
   namespace: dev
   annotations:
-    kubernetes.io/ingress.class: alb
-    alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    # Switch to Nginx for SSL termination
+    kubernetes.io/ingress.class: nginx
+    # Automatically get certificates from cert-manager
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Enable SSL Redirect
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - TaskFlow-${TARGET_ENV}.duckdns.org
+    secretName: taskflow-tls-secret
   rules:
-  - http:
+  - host: TaskFlow-${TARGET_ENV}.duckdns.org
+    http:
       paths:
       - path: /api/users
         pathType: Prefix

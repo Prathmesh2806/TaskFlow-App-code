@@ -36,7 +36,7 @@ on:
         type: boolean
         default: true
 
-      # Specific Image Tags (Optional - Defaults to service-name-sha)
+      # Specific Image Tags
       frontend_tag:
         description: 'Frontend Tag (blank for auto)'
         required: false
@@ -60,6 +60,7 @@ jobs:
     env:
       AWS_REGION: us-east-1
       TARGET_ENV: ${{ github.event.inputs.target_resource || 'dev' }}
+      DUCKDNS_TOKEN: ${{ secrets.DUCKDNS_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -79,102 +80,90 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
+      # (Build and Push steps for all 5 services remain the same...)
       - name: Build and Push Frontend
         if: github.event.inputs.deploy_frontend == 'true'
         run: |
-          SERVICE="frontend"
-          COMMIT_TAG="${SERVICE}-${{ steps.vars.outputs.sha_short }}"
-          TAG="${{ github.event.inputs.frontend_tag }}"
-          [ -z "$TAG" ] && TAG="$COMMIT_TAG"
-          
-          REPO_NAME="taskflow-shared-$SERVICE"
+          SERVICE="frontend"; TAG="${{ github.event.inputs.frontend_tag || format('{0}-{1}', 'frontend', steps.vars.outputs.sha_short) }}"
           REGISTRY=${{ steps.login-ecr.outputs.registry }}
-          docker build -t $REGISTRY/$REPO_NAME:$TAG frontend/
-          docker push $REGISTRY/$REPO_NAME:$TAG
+          docker build -t $REGISTRY/taskflow-shared-$SERVICE:$TAG frontend/
+          docker push $REGISTRY/taskflow-shared-$SERVICE:$TAG
           echo "FRONTEND_TAG=$TAG" >> $GITHUB_ENV
 
       - name: Build and Push User Service
         if: github.event.inputs.deploy_user_service == 'true'
         run: |
-          SERVICE="user-service"
-          COMMIT_TAG="${SERVICE}-${{ steps.vars.outputs.sha_short }}"
-          TAG="${{ github.event.inputs.user_tag }}"
-          [ -z "$TAG" ] && TAG="$COMMIT_TAG"
-          
-          REPO_NAME="taskflow-shared-$SERVICE"
+          SERVICE="user-service"; TAG="${{ github.event.inputs.user_tag || format('{0}-{1}', 'user-service', steps.vars.outputs.sha_short) }}"
           REGISTRY=${{ steps.login-ecr.outputs.registry }}
-          docker build -t $REGISTRY/$REPO_NAME:$TAG services/user-service/
-          docker push $REGISTRY/$REPO_NAME:$TAG
+          docker build -t $REGISTRY/taskflow-shared-$SERVICE:$TAG services/user-service/
+          docker push $REGISTRY/taskflow-shared-$SERVICE:$TAG
           echo "USER_TAG=$TAG" >> $GITHUB_ENV
 
       - name: Build and Push Project Service
         if: github.event.inputs.deploy_project_service == 'true'
         run: |
-          SERVICE="project-service"
-          COMMIT_TAG="${SERVICE}-${{ steps.vars.outputs.sha_short }}"
-          TAG="${{ github.event.inputs.project_tag }}"
-          [ -z "$TAG" ] && TAG="$COMMIT_TAG"
-          
-          REPO_NAME="taskflow-shared-$SERVICE"
+          SERVICE="project-service"; TAG="${{ github.event.inputs.project_tag || format('{0}-{1}', 'project-service', steps.vars.outputs.sha_short) }}"
           REGISTRY=${{ steps.login-ecr.outputs.registry }}
-          docker build -t $REGISTRY/$REPO_NAME:$TAG services/project-service/
-          docker push $REGISTRY/$REPO_NAME:$TAG
+          docker build -t $REGISTRY/taskflow-shared-$SERVICE:$TAG services/project-service/
+          docker push $REGISTRY/taskflow-shared-$SERVICE:$TAG
           echo "PROJECT_TAG=$TAG" >> $GITHUB_ENV
 
       - name: Build and Push Task Service
         if: github.event.inputs.deploy_task_service == 'true'
         run: |
-          SERVICE="task-service"
-          COMMIT_TAG="${SERVICE}-${{ steps.vars.outputs.sha_short }}"
-          TAG="${{ github.event.inputs.task_tag }}"
-          [ -z "$TAG" ] && TAG="$COMMIT_TAG"
-          
-          REPO_NAME="taskflow-shared-$SERVICE"
+          SERVICE="task-service"; TAG="${{ github.event.inputs.task_tag || format('{0}-{1}', 'task-service', steps.vars.outputs.sha_short) }}"
           REGISTRY=${{ steps.login-ecr.outputs.registry }}
-          docker build -t $REGISTRY/$REPO_NAME:$TAG services/task-service/
-          docker push $REGISTRY/$REPO_NAME:$TAG
+          docker build -t $REGISTRY/taskflow-shared-$SERVICE:$TAG services/task-service/
+          docker push $REGISTRY/taskflow-shared-$SERVICE:$TAG
           echo "TASK_TAG=$TAG" >> $GITHUB_ENV
 
       - name: Build and Push Database Service
         if: github.event.inputs.deploy_database == 'true'
         run: |
-          SERVICE="database"
-          COMMIT_TAG="${SERVICE}-${{ steps.vars.outputs.sha_short }}"
-          TAG="${{ github.event.inputs.database_tag }}"
-          [ -z "$TAG" ] && TAG="$COMMIT_TAG"
-          
-          REPO_NAME="taskflow-shared-$SERVICE"
+          SERVICE="database"; TAG="${{ github.event.inputs.database_tag || format('{0}-{1}', 'database', steps.vars.outputs.sha_short) }}"
           REGISTRY=${{ steps.login-ecr.outputs.registry }}
-          # Use /db folder for custom database image
-          docker build -t $REGISTRY/$REPO_NAME:$TAG db/
-          docker push $REGISTRY/$REPO_NAME:$TAG
+          docker build -t $REGISTRY/taskflow-shared-$SERVICE:$TAG db/
+          docker push $REGISTRY/taskflow-shared-$SERVICE:$TAG
           echo "DATABASE_TAG=$TAG" >> $GITHUB_ENV
 
       - name: Update EKS Kubeconfig
         run: aws eks update-kubeconfig --name "TaskFlow-${{ env.TARGET_ENV }}-cluster" --region ${{ env.AWS_REGION }}
 
+      - name: Deploy Ingress Controllers & HTTPS
+        run: |
+          # 1. Install Cert-Manager (if not exists)
+          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+          
+          # 2. Setup Nginx Ingress & SSL
+          kubectl apply -f kube/nginx-ingress-setup.yaml
+          
+          # Replace placeholders in manifests
+          sed -i "s|\${TARGET_ENV}|${{ env.TARGET_ENV }}|g" kube/cert-manager-setup.yaml
+          kubectl apply -f kube/cert-manager-setup.yaml
+
       - name: Deploy Selected Services
         run: |
           REGISTRY=${{ steps.login-ecr.outputs.registry }}
           
-          # Replace Registry URL
+          # Replace Placeholders
           sed -i "s|\${ECR_URL}|$REGISTRY/taskflow-shared|g" kube/*.yaml
+          sed -i "s|\${TARGET_ENV}|${{ env.TARGET_ENV }}|g" kube/*.yaml
+          sed -i "s|\${DUCKDNS_TOKEN}|${{ env.DUCKDNS_TOKEN }}|g" kube/*.yaml
 
-          # Replace Tags in specific files (using the actually used tags from env)
+          # Specific Tags
           sed -i "s|:latest|:${{ env.FRONTEND_TAG || 'frontend-default' }}|g" kube/frontend-deploy.yaml
           sed -i "s|:latest|:${{ env.USER_TAG || 'user-default' }}|g" kube/user-service-deploy.yaml
           sed -i "s|:latest|:${{ env.PROJECT_TAG || 'project-default' }}|g" kube/project-service-deploy.yaml
           sed -i "s|:latest|:${{ env.TASK_TAG || 'task-default' }}|g" kube/task-service-deploy.yaml
-          
-          # Database image replacement logic (targeting custom ECR repo)
           sed -i "s|image: postgres:15|image: $REGISTRY/taskflow-shared-database:${{ env.DATABASE_TAG }}|g" kube/postgres-deploy.yaml
 
-          # Selectively apply based on checkboxes
+          # Apply manifests
           if [ "${{ github.event.inputs.deploy_frontend }}" == "true" ]; then kubectl apply -f kube/frontend-deploy.yaml; fi
           if [ "${{ github.event.inputs.deploy_user_service }}" == "true" ]; then kubectl apply -f kube/user-service-deploy.yaml; fi
           if [ "${{ github.event.inputs.deploy_project_service }}" == "true" ]; then kubectl apply -f kube/project-service-deploy.yaml; fi
           if [ "${{ github.event.inputs.deploy_task_service }}" == "true" ]; then kubectl apply -f kube/task-service-deploy.yaml; fi
           if [ "${{ github.event.inputs.deploy_database }}" == "true" ]; then kubectl apply -f kube/postgres-deploy.yaml; fi
           
-          # Always apply shared resources like Ingress
+          # Apply DuckDNS Sync and App Ingress
+          kubectl apply -f kube/duckdns-sync.yaml
           kubectl apply -f kube/taskflow-ingress.yaml
