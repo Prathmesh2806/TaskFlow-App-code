@@ -1,13 +1,6 @@
 name: "Application Deployment"
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'services/**'
-      - 'frontend/**'
-      - 'kube/**'
   workflow_dispatch:
     inputs:
       target_env:
