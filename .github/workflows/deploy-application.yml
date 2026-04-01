@@ -31,8 +31,8 @@ on:
         description: 'Deploy Task Service'
         type: boolean
         default: true
-      deploy_db:
-        description: 'Deploy Database (Postgres)'
+      deploy_database:
+        description: 'Deploy Database (Custom Postgres)'
         type: boolean
         default: true
 
@@ -49,10 +49,9 @@ on:
       task_tag:
         description: 'Task Service Tag (blank for auto)'
         required: false
-      db_tag:
-        description: 'DB Image Tag (default: 15)'
+      database_tag:
+        description: 'Database Tag (blank for auto)'
         required: false
-        default: '15'
 
 jobs:
   deploy:
@@ -136,13 +135,27 @@ jobs:
           docker push $REGISTRY/$REPO_NAME:$TAG
           echo "TASK_TAG=$TAG" >> $GITHUB_ENV
 
+      - name: Build and Push Database Service
+        if: github.event.inputs.deploy_database == 'true'
+        run: |
+          SERVICE="database"
+          COMMIT_TAG="${SERVICE}-${{ steps.vars.outputs.sha_short }}"
+          TAG="${{ github.event.inputs.database_tag }}"
+          [ -z "$TAG" ] && TAG="$COMMIT_TAG"
+          
+          REPO_NAME="taskflow-shared-$SERVICE"
+          REGISTRY=${{ steps.login-ecr.outputs.registry }}
+          # Use /db folder for custom database image
+          docker build -t $REGISTRY/$REPO_NAME:$TAG db/
+          docker push $REGISTRY/$REPO_NAME:$TAG
+          echo "DATABASE_TAG=$TAG" >> $GITHUB_ENV
+
       - name: Update EKS Kubeconfig
         run: aws eks update-kubeconfig --name "TaskFlow-${{ env.TARGET_ENV }}-cluster" --region ${{ env.AWS_REGION }}
 
       - name: Deploy Selected Services
         run: |
           REGISTRY=${{ steps.login-ecr.outputs.registry }}
-          DEFAULT_TAG="sha-${{ steps.vars.outputs.sha_short }}"
           
           # Replace Registry URL
           sed -i "s|\${ECR_URL}|$REGISTRY/taskflow-shared|g" kube/*.yaml
@@ -152,14 +165,16 @@ jobs:
           sed -i "s|:latest|:${{ env.USER_TAG || 'user-default' }}|g" kube/user-service-deploy.yaml
           sed -i "s|:latest|:${{ env.PROJECT_TAG || 'project-default' }}|g" kube/project-service-deploy.yaml
           sed -i "s|:latest|:${{ env.TASK_TAG || 'task-default' }}|g" kube/task-service-deploy.yaml
-          sed -i "s|postgres:15|postgres:${{ github.event.inputs.db_tag || '15' }}|g" kube/postgres-deploy.yaml
+          
+          # Database image replacement logic (targeting custom ECR repo)
+          sed -i "s|image: postgres:15|image: $REGISTRY/taskflow-shared-database:${{ env.DATABASE_TAG }}|g" kube/postgres-deploy.yaml
 
           # Selectively apply based on checkboxes
           if [ "${{ github.event.inputs.deploy_frontend }}" == "true" ]; then kubectl apply -f kube/frontend-deploy.yaml; fi
           if [ "${{ github.event.inputs.deploy_user_service }}" == "true" ]; then kubectl apply -f kube/user-service-deploy.yaml; fi
           if [ "${{ github.event.inputs.deploy_project_service }}" == "true" ]; then kubectl apply -f kube/project-service-deploy.yaml; fi
           if [ "${{ github.event.inputs.deploy_task_service }}" == "true" ]; then kubectl apply -f kube/task-service-deploy.yaml; fi
-          if [ "${{ github.event.inputs.deploy_db }}" == "true" ]; then kubectl apply -f kube/postgres-deploy.yaml; fi
+          if [ "${{ github.event.inputs.deploy_database }}" == "true" ]; then kubectl apply -f kube/postgres-deploy.yaml; fi
           
           # Always apply shared resources like Ingress
           kubectl apply -f kube/taskflow-ingress.yaml

@@ -14,6 +14,6 @@ module "ecr" {
 
   project_name = var.project_name
   environment  = "shared"
-  # Updated services for the full microservices architecture
-  services     = ["frontend", "project-service", "task-service", "user-service", "postgres"]
+  # Standardize all service names including the database
+  services     = ["frontend", "project-service", "task-service", "user-service", "database"]
 }
