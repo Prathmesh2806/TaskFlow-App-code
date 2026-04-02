@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Environment (for EKS clusters)'
+        description: 'Environment to target (for EKS clusters)'
         required: true
         type: choice
         options:
@@ -22,61 +22,10 @@ on:
           - apply
           - destroy
         default: 'apply'
-      destroy_shared:
-        description: 'ALLOW Shared Network Destruction? (VPC/NAT/ECR)'
-        type: boolean
-        default: false
 
 jobs:
-  shared:
-    name: "Shared Resources"
-    # Run if not destroying, OR if explicitly allowed to destroy shared resources
-    if: github.event.inputs.action != 'destroy' || github.event.inputs.destroy_shared == 'true'
-    runs-on: ubuntu-latest
-    env:
-      AWS_REGION: us-east-1
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Ensure Shared S3 Backend Exists
-        run: |
-          RAW_BUCKET_NAME="taskflow-terraform-state-shared-${{ github.repository_owner }}"
-          BUCKET_NAME=$(echo "$RAW_BUCKET_NAME" | tr '[:upper:]' '[:lower:]')
-          if ! aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
-            aws s3api create-bucket --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }}
-            aws s3api put-bucket-versioning --bucket "$BUCKET_NAME" --versioning-configuration Status=Enabled
-          fi
-          sed -i "s/__SHARED_BUCKET__/$BUCKET_NAME/g" infrastructure/shared/backend.conf
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-
-      - name: Terraform Init (Shared)
-        run: terraform init -backend-config=backend.conf
-        working-directory: infrastructure/shared
-
-      - name: Terraform Action (Shared)
-        run: |
-          if [ "${{ github.event.inputs.action || 'apply' }}" == "plan" ]; then
-            terraform plan
-          else
-            terraform ${{ github.event.inputs.action || 'apply' }} -auto-approve
-          fi
-        working-directory: infrastructure/shared
-
-  eks:
-    name: "EKS Cluster"
-    needs: shared
-    # EKS always runs, even on destroy
-    if: always() && (needs.shared.result == 'success' || (github.event.inputs.action == 'destroy' && needs.shared.result == 'skipped'))
+  infrastructure:
+    name: "Targeted Infrastructure"
     runs-on: ubuntu-latest
     env:
       ENV: ${{ github.event.inputs.environment || 'dev' }}
@@ -93,9 +42,10 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Ensure Env S3 Backend Exists
+      - name: Ensure Master S3 Backend Exists
         run: |
-          RAW_BUCKET_NAME="taskflow-terraform-state-${{ env.ENV }}-${{ github.repository_owner }}"
+          # Use a single shared bucket for the master state file
+          RAW_BUCKET_NAME="taskflow-terraform-state-master-${{ github.repository_owner }}"
           BUCKET_NAME=$(echo "$RAW_BUCKET_NAME" | tr '[:upper:]' '[:lower:]')
           if ! aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
             aws s3api create-bucket --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }}
@@ -106,15 +56,19 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
 
-      - name: Terraform Init (Env)
+      - name: Terraform Init
         run: terraform init -backend-config=backend.conf
         working-directory: infrastructure
 
-      - name: Terraform Action (Env)
+      - name: Terraform Action (Targeted)
         run: |
+          # The -target flags ensure we only manage the shared network and the selected environment's cluster.
+          # This prevents Terraform from trying to manage (or delete) other environments.
+          TARGET_FLAGS="-target=module.network -target=module.ecr -target=module.eks"
+          
           if [ "${{ env.ACTION }}" == "plan" ]; then
-            terraform plan -var-file=envs/${{ env.ENV }}.tfvars
+            terraform plan $TARGET_FLAGS -var-file=envs/${{ env.ENV }}.tfvars
           else
-            terraform ${{ env.ACTION }} -auto-approve -var-file=envs/${{ env.ENV }}.tfvars
+            terraform ${{ env.ACTION }} $TARGET_FLAGS -auto-approve -var-file=envs/${{ env.ENV }}.tfvars
           fi
         working-directory: infrastructure

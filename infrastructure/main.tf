@@ -1,19 +1,21 @@
-data "aws_vpc" "shared" {
-  filter {
-    name   = "tag:Name"
-    values = ["${var.project_name}-shared-vpc"]
-  }
+module "network" {
+  source = "./modules/network"
+
+  project_name        = var.project_name
+  environment         = "shared"
+  vpc_cidr            = var.vpc_cidr
+  public_subnets      = var.public_subnets
+  private_subnets     = var.private_subnets
+  availability_zones  = var.availability_zones
 }
 
-data "aws_subnets" "private" {
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.shared.id]
-  }
-  filter {
-    name   = "tag:kubernetes.io/role/internal-elb"
-    values = ["1"]
-  }
+module "ecr" {
+  source = "./modules/ecr"
+
+  project_name = var.project_name
+  environment  = "shared"
+  # Standardize all service names including the database
+  services     = ["frontend", "project-service", "task-service", "user-service", "database"]
 }
 
 module "eks" {
@@ -21,7 +23,6 @@ module "eks" {
 
   project_name       = var.project_name
   environment        = var.environment
-  vpc_id             = data.aws_vpc.shared.id
-  private_subnet_ids = data.aws_subnets.private.ids
-  # Additional EKS config can go here
+  vpc_id             = module.network.vpc_id
+  private_subnet_ids = module.network.private_subnet_ids
 }
