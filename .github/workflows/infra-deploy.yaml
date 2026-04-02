@@ -62,9 +62,13 @@ jobs:
 
       - name: Terraform Action (Targeted)
         run: |
-          # The -target flags ensure we only manage the shared network and the selected environment's cluster.
-          # This prevents Terraform from trying to manage (or delete) other environments.
-          TARGET_FLAGS="-target=module.network -target=module.ecr -target=module.eks"
+          # Use targets for Plan/Apply to protect other clusters
+          # Use FULL ACTION for Destroy to ensure all dependencies are cleaned up
+          if [ "${{ env.ACTION }}" == "destroy" ]; then
+            TARGET_FLAGS=""
+          else
+            TARGET_FLAGS="-target=module.network -target=module.ecr -target=module.eks"
+          fi
           
           if [ "${{ env.ACTION }}" == "plan" ]; then
             terraform plan $TARGET_FLAGS -var-file=envs/${{ env.ENV }}.tfvars

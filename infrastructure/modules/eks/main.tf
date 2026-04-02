@@ -47,6 +47,17 @@ resource "aws_eks_cluster" "main" {
   depends_on = [
     aws_iam_role_policy_attachment.cluster_AmazonEKSClusterPolicy
   ]
+
+  # Nuclear Cleanup: Forcefully detach policies during destroy if AWS is lagging
+  provisioner "local-exec" {
+    when    = destroy
+    command = <<EOT
+      ROLE_NAME="${self.name}-alb-controller-role"
+      POLICY_ARN="arn:aws:iam::${split(":", self.arn)[4]}:policy/${self.name}-aws-load-balancer-controller"
+      echo "Forcefully detaching $POLICY_ARN from $ROLE_NAME..."
+      aws iam detach-role-policy --role-name $ROLE_NAME --policy-arn $POLICY_ARN || true
+    EOT
+  }
 }
 
 resource "aws_iam_role" "nodes" {
