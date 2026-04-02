@@ -48,7 +48,8 @@ jobs:
 
       - name: Ensure Shared S3 Backend Exists
         run: |
-          BUCKET_NAME="taskflow-terraform-state-shared-${{ github.repository_owner }}"
+          RAW_BUCKET_NAME="taskflow-terraform-state-shared-${{ github.repository_owner }}"
+          BUCKET_NAME=$(echo "$RAW_BUCKET_NAME" | tr '[:upper:]' '[:lower:]')
           if ! aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
             aws s3api create-bucket --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }}
             aws s3api put-bucket-versioning --bucket "$BUCKET_NAME" --versioning-configuration Status=Enabled
@@ -89,7 +90,8 @@ jobs:
 
       - name: Ensure Env S3 Backend Exists
         run: |
-          BUCKET_NAME="taskflow-terraform-state-${{ env.ENV }}-${{ github.repository_owner }}"
+          RAW_BUCKET_NAME="taskflow-terraform-state-${{ env.ENV }}-${{ github.repository_owner }}"
+          BUCKET_NAME=$(echo "$RAW_BUCKET_NAME" | tr '[:upper:]' '[:lower:]')
           if ! aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
             aws s3api create-bucket --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }}
             aws s3api put-bucket-versioning --bucket "$BUCKET_NAME" --versioning-configuration Status=Enabled
