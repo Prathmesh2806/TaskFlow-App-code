@@ -64,7 +64,12 @@ jobs:
         working-directory: infrastructure/shared
 
       - name: Terraform Action (Shared)
-        run: terraform ${{ github.event.inputs.action || 'apply' }} -auto-approve
+        run: |
+          if [ "${{ github.event.inputs.action || 'apply' }}" == "plan" ]; then
+            terraform plan
+          else
+            terraform ${{ github.event.inputs.action || 'apply' }} -auto-approve
+          fi
         working-directory: infrastructure/shared
 
   eks:
@@ -106,5 +111,10 @@ jobs:
         working-directory: infrastructure
 
       - name: Terraform Action (Env)
-        run: terraform ${{ env.ACTION }} -auto-approve -var-file=envs/${{ env.ENV }}.tfvars
+        run: |
+          if [ "${{ env.ACTION }}" == "plan" ]; then
+            terraform plan -var-file=envs/${{ env.ENV }}.tfvars
+          else
+            terraform ${{ env.ACTION }} -auto-approve -var-file=envs/${{ env.ENV }}.tfvars
+          fi
         working-directory: infrastructure
