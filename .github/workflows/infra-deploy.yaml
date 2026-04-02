@@ -53,6 +53,36 @@ jobs:
           fi
           sed -i "s/__ENV_BUCKET__/$BUCKET_NAME/g" infrastructure/backend.conf
 
+      - name: Pre-Destroy Cleanup (For EKS & IAM)
+        if: env.ACTION == 'destroy'
+        run: |
+          CLUSTER_NAME="TaskFlow-${{ env.ENV }}-cluster"
+          echo "Running pre-destroy cleanup for $CLUSTER_NAME..."
+          
+          # 1. Force detach ALB Controller IAM Policy from any roles
+          ALB_POLICY_ARN=$(aws iam list-policies --query "Policies[?PolicyName=='TaskFlow-${{ env.ENV }}-aws-load-balancer-controller'].Arn" --output text || true)
+          if [ -n "$ALB_POLICY_ARN" ]; then
+            ROLES=$(aws iam list-entities-for-policy --policy-arn "$ALB_POLICY_ARN" --query 'PolicyRoles[*].RoleName' --output text 2>/dev/null || true)
+            for ROLE in $ROLES; do
+              echo "Detaching $ALB_POLICY_ARN from $ROLE..."
+              aws iam detach-role-policy --role-name "$ROLE" --policy-arn "$ALB_POLICY_ARN" || true
+            done
+          fi
+
+          # 2. Force delete any remaining EKS nodegroups
+          NODEGROUPS=$(aws eks list-nodegroups --cluster-name "$CLUSTER_NAME" --region ${{ env.AWS_REGION }} --query 'nodegroups[*]' --output text 2>/dev/null || true)
+          for NG in $NODEGROUPS; do
+            echo "Deleting lingering nodegroup: $NG..."
+            aws eks delete-nodegroup --cluster-name "$CLUSTER_NAME" --nodegroup-name "$NG" --region ${{ env.AWS_REGION }} || true
+          done
+          
+          # Wait for nodegroups to be deleted
+          for NG in $NODEGROUPS; do
+            echo "Waiting for nodegroup $NG to be fully deleted..."
+            aws eks wait nodegroup-deleted --cluster-name "$CLUSTER_NAME" --nodegroup-name "$NG" --region ${{ env.AWS_REGION }} || true
+          done
+          echo "Cleanup finished."
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
 
