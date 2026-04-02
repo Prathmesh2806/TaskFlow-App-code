@@ -54,7 +54,7 @@ jobs:
             aws s3api create-bucket --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }}
             aws s3api put-bucket-versioning --bucket "$BUCKET_NAME" --versioning-configuration Status=Enabled
           fi
-          sed -i "s/taskflow-terraform-state-shared/$BUCKET_NAME/g" infrastructure/shared/backend.conf
+          sed -i "s/__SHARED_BUCKET__/$BUCKET_NAME/g" infrastructure/shared/backend.conf
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
@@ -96,7 +96,7 @@ jobs:
             aws s3api create-bucket --bucket "$BUCKET_NAME" --region ${{ env.AWS_REGION }}
             aws s3api put-bucket-versioning --bucket "$BUCKET_NAME" --versioning-configuration Status=Enabled
           fi
-          sed -i "s/taskflow-terraform-state-us-east-1/$BUCKET_NAME/g" infrastructure/backend.conf
+          sed -i "s/__ENV_BUCKET__/$BUCKET_NAME/g" infrastructure/backend.conf
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2

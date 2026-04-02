@@ -2,7 +2,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: taskflow-ingress
-  namespace: dev
+  namespace: ${TARGET_ENV}
   annotations:
     # Switch to Nginx for SSL termination
     kubernetes.io/ingress.class: nginx

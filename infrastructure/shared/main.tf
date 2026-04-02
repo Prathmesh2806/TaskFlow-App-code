@@ -1,5 +1,5 @@
 module "network" {
-  source = "../../modules/network"
+  source = "../modules/network"
 
   project_name        = var.project_name
   environment         = "shared"
@@ -10,7 +10,7 @@ module "network" {
 }
 
 module "ecr" {
-  source = "../../modules/ecr"
+  source = "../modules/ecr"
 
   project_name = var.project_name
   environment  = "shared"
