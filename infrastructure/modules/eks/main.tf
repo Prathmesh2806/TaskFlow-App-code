@@ -17,6 +17,7 @@ terraform {
 
 resource "aws_iam_role" "cluster" {
   name = "${var.project_name}-${var.environment}-eks-cluster-role"
+  force_detach_policies = true
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -50,6 +51,7 @@ resource "aws_eks_cluster" "main" {
 
 resource "aws_iam_role" "nodes" {
   name = "${var.project_name}-${var.environment}-eks-node-role"
+  force_detach_policies = true
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
