@@ -12,10 +12,6 @@ terraform {
       source  = "hashicorp/helm"
       version = "~> 2.11"
     }
-    time = {
-      source  = "hashicorp/time"
-      version = "~> 0.9"
-    }
   }
 }
 
@@ -40,14 +36,6 @@ resource "aws_iam_role_policy_attachment" "cluster_AmazonEKSClusterPolicy" {
   role       = aws_iam_role.cluster.name
 }
 
-# Standard AWS EKS deletion takes time to release ENIs. 
-# This resource forces a 30-second delay during DESTRUCTION ONLY.
-resource "time_sleep" "wait_for_nodes" {
-  depends_on      = [aws_eks_node_group.main]
-  # Increase to 120 seconds to give AWS plenty of time to release all ENIs
-  destroy_duration = "120s"
-}
-
 resource "aws_eks_cluster" "main" {
   name     = "${var.project_name}-${var.environment}-cluster"
   role_arn = aws_iam_role.cluster.arn
@@ -57,11 +45,9 @@ resource "aws_eks_cluster" "main" {
   }
 
   depends_on = [
-    aws_iam_role_policy_attachment.cluster_AmazonEKSClusterPolicy,
-    time_sleep.wait_for_nodes
+    aws_iam_role_policy_attachment.cluster_AmazonEKSClusterPolicy
   ]
 }
-
 
 resource "aws_iam_role" "nodes" {
   name = "${var.project_name}-${var.environment}-eks-node-role"
@@ -107,6 +93,11 @@ resource "aws_eks_node_group" "main" {
   }
 
   instance_types = ["t3.medium"]
+
+  # Correct way to handle slow AWS ENI cleanup without causing cycles
+  timeouts {
+    delete = "20m"
+  }
 
   depends_on = [
     aws_iam_role_policy_attachment.nodes_AmazonEKSWorkerNodePolicy,

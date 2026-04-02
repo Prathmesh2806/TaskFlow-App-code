@@ -80,15 +80,9 @@ resource "aws_iam_role" "alb_controller" {
       }
     ]
   })
-
-  # Ensure the controller is gone before the role is deleted
-  depends_on = [helm_release.aws_lbc]
 }
 
 resource "aws_iam_role_policy_attachment" "alb_controller_attach" {
   policy_arn = aws_iam_policy.alb_controller.arn
   role       = aws_iam_role.alb_controller.name
-
-  # Double-ensure detachment happens after the app is gone
-  depends_on = [helm_release.aws_lbc]
 }
