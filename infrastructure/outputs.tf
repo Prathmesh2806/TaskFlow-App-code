@@ -1,15 +1,14 @@
-output "vpc_id" {
-  value = module.network.vpc_id
-}
-
-output "private_subnet_ids" {
-  value = module.network.private_subnet_ids
-}
-
 output "eks_cluster_name" {
-  value = module.eks.cluster_name
+  value       = module.eks.cluster_name
+  description = "The name of the EKS cluster"
 }
 
-output "ecr_repository_urls" {
-  value = module.ecr.repository_urls
+output "eks_cluster_endpoint" {
+  value       = module.eks.cluster_endpoint
+  description = "The endpoint of the EKS cluster"
+}
+
+output "eks_cluster_certificate_authority" {
+  value       = module.eks.cluster_ca_certificate
+  description = "The CA certificate of the EKS cluster"
 }
