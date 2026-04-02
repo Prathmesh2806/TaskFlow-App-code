@@ -40,26 +40,25 @@ spec:
           serviceAccountName: duckdns-sync-sa
           containers:
           - name: sync
-            image: alpine:3.18
+            image: bitnami/kubectl:latest
             env:
             - name: DUCKDNS_DOMAIN
-              value: "TaskFlow-${TARGET_ENV}"
+              value: "taskflow-${TARGET_ENV}"
             - name: DUCKDNS_TOKEN
               value: "${DUCKDNS_TOKEN}"
             command:
-            - /bin/sh
+            - /bin/bash
             - -c
             - |
-              apk add --no-cache curl bind-tools
-              # 1. Get NLB Hostname from the Ingress-Nginx Service
+              # Get NLB Hostname from the Ingress-Nginx Service
               NLB_HOST=$(kubectl get svc ingress-nginx-controller -n kube-system -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
               if [ -z "$NLB_HOST" ]; then echo "NLB Host not found yet. Retrying..."; exit 0; fi
               
-              # 2. Resolve NLB to IP
-              NLB_IP=$(dig +short $NLB_HOST | head -n 1)
+              # Resolve NLB to IP (Using ping -c 1 because bitnami is slim)
+              NLB_IP=$(getent hosts $NLB_HOST | awk '{ print $1 }' | head -n 1)
               if [ -z "$NLB_IP" ]; then echo "Could not resolve $NLB_HOST. Retrying..."; exit 0; fi
               
-              # 3. Update DuckDNS
+              # Update DuckDNS
               echo "Updating DuckDNS domain $DUCKDNS_DOMAIN with IP $NLB_IP..."
               RESULT=$(curl -s "https://www.duckdns.org/update?domains=$DUCKDNS_DOMAIN&token=$DUCKDNS_TOKEN&ip=$NLB_IP")
               echo "DuckDNS Response: $RESULT"

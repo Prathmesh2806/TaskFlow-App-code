@@ -7,6 +7,8 @@ module "network" {
   public_subnets      = var.public_subnets
   private_subnets     = var.private_subnets
   availability_zones  = var.availability_zones
+  # Crucial for the Node Group to join the cluster successfully
+  cluster_name        = "${var.project_name}-${var.environment}-cluster"
 }
 
 module "ecr" {
